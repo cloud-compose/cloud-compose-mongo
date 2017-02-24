@@ -1,4 +1,5 @@
 from pymongo import MongoClient
+from pymongo.errors import ServerSelectionTimeoutError
 from urllib import quote_plus
 from pprint import pprint
 
@@ -9,22 +10,33 @@ class MongoController:
         self.servers = servers
 
     def health(self):
-        print 'mongodb is healthy? %s' % self._repl_health(self._repl_status(27018))
-        print 'configdb is healthy? %s' % self._repl_health(self._repl_status(27019))
+        self._repl_set_health(27018, 'mongodb')
+        self._repl_set_health(27019, 'configdb')
 
-    def _repl_health(self, repl_status):
-        healthy = False
+    def _repl_set_health(self, port, node_type):
+        unhealthy_nodes = self._repl_set_unhealthy_nodes(self._repl_set_status(port))
+        if len(unhealthy_nodes) == 0:
+            print '%s is HEALTHY' % node_type
+            return True
+        else:
+            print '%s is SICK because of the following nodes: %s' % (node_type, ' '.join(unhealthy_nodes))
+            return False
+
+    def _repl_set_unhealthy_nodes(self, repl_status):
+        unhealthy_nodes = []
         for member in repl_status.get('members', []):
-            healthy = True
             # see https://docs.mongodb.com/manual/reference/replica-states/ for details on state numbers
             if member.get('state', 6) not in [1, 2, 7, 10]:
-                healthy = False
-                break
+                node_name = member['name'].split(':')[0]
+                unhealthy_nodes.append(node_name)
 
-        return healthy
+        return unhealthy_nodes
 
-    def _repl_status(self, port):
+    def _repl_set_status(self, port):
         for server in self.servers:
-            client = MongoClient('mongodb://%s:%s@%s:%s' % (self.user, self.password, server, port))
-            return client.admin.command('replSetGetStatus')
+            try:
+                client = MongoClient('mongodb://%s:%s@%s:%s' % (self.user, self.password, server, port), serverselectiontimeoutms=3000)
+                return client.admin.command('replSetGetStatus')
+            except ServerSelectionTimeoutError:
+                continue
 
