@@ -17,6 +17,7 @@ setup(
         'jmespath>=0.9.0',
         'MarkupSafe>=0.23',
         'cloud-compose>=0.3.0',
+        'cloud-compose-cluster>=0.12.2',
         'PyYAML>=3.11',
         'retrying>=1.3.3',
         'six>=1.10.0',
