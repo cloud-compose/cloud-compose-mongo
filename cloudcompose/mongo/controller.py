@@ -11,7 +11,7 @@ import time, datetime
 from retrying import retry
 from pprint import pprint
 from pymongo import MongoClient
-from pymongo.errors import ServerSelectionTimeoutError
+from pymongo.errors import ServerSelectionTimeoutError, OperationFailure
 from urllib import quote_plus
 from pprint import pprint
 from workflow import UpgradeWorkflow, Server
@@ -96,6 +96,8 @@ class Controller(object):
             try:
                 client = MongoClient('mongodb://%s:%s@%s:%s' % (self.user, self.password, server_ip, port), serverselectiontimeoutms=3000)
                 return client.admin.command('replSetGetStatus')
+            except OperationFailure:
+                continue
             except ServerSelectionTimeoutError:
                 continue
 
