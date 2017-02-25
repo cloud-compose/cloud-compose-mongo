@@ -26,7 +26,7 @@ def up(use_snapshots, upgrade_image):
 @click.option('--password', help="Mongo password")
 @click.option('--use-snapshots/--no-use-snapshots', default=True, help="Use snapshots to initialize volumes with existing data")
 @click.option('--upgrade-image/--no-upgrade-image', default=False, help="Upgrade the image to the newest version instead of keeping the cluster consistent")
-@click.option('--single-step/--no-single-step', default=True, help="Perform only one upgrade step and then exit")
+@click.option('--single-step/--no-single-step', default=False, help="Perform only one upgrade step and then exit")
 def upgrade(user, password, use_snapshots, upgrade_image, single_step):
     """
     upgrades an exist cluster

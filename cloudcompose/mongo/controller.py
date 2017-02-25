@@ -14,7 +14,7 @@ from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError
 from urllib import quote_plus
 from pprint import pprint
-from workflow import UpgradeWorkflow
+from workflow import UpgradeWorkflow, Server
 from cloudcompose.cluster.cloudinit import CloudInit
 from cloudcompose.cluster.aws.cloudcontroller import CloudController
 
@@ -44,12 +44,14 @@ class Controller(object):
         cloud_controller.up(ci, self.use_snapshots, self.upgrade_image)
 
     def cluster_upgrade(self, single_step):
-        workflow = UpgradeWorkflow(self, self.server_ips())
+        workflow = UpgradeWorkflow(self, self.config_data['name'], self.servers())
         if single_step:
             workflow.step()
         else:
-            #TODO implement continuous upgrade of all nodes
-            pass
+            while workflow.step():
+                sys.stdout.write('.')
+                sys.stdout.flush()
+                sleep(10)
 
     def cluster_health(self):
         msg_list = []
@@ -81,6 +83,14 @@ class Controller(object):
     def server_ips(self):
         return [node['ip'] for node in self.aws.get('nodes', [])]
 
+    def servers(self):
+        servers = []
+        for server_ip in self.server_ips():
+            instance_id = self._instance_id_from_private_ip(server_ip)
+            servers.append(Server(private_ip=server_ip, instance_id=instance_id))
+
+        return servers
+
     def _repl_set_status(self, port):
         for server_ip in self.server_ips():
             try:
@@ -89,31 +99,36 @@ class Controller(object):
             except ServerSelectionTimeoutError:
                 continue
 
-    def instance_terminate(self, server_ip):
-        instance_id = self._instance_id_from_private_ip(server_ip)
+    def instance_terminate(self, instance_id):
         self._disable_terminate_protection(instance_id)
         self._ec2_terminate_instances(InstanceIds=[instance_id])
 
-    def instance_status(self, instance_id):
+    def instance_by_private_ip(self, private_ip):
         filters = [
-            {
-                "Name": "instance-id",
-                "Values": [instance_id]
-            }
+            {'Name': 'instance-state-name', 'Values': ['running']},
+            {'Name': 'private-ip-address', 'Values': [private_ip]}
         ]
-        instances = self._ec2_describe_instances(Filters=filters)["Reservations"]
+        instances = self._ec2_describe_instances(Filters=filters)['Reservations']
         if len(instances) != 1:
-            raise Exception("Expected one instance for %s and got %s" % (instance_id, len(instances)))
-        return instances[0]["Instances"][0]["State"]["Name"]
+            return None, None
+        instance = instances[0]['Instances'][0]
+        return instance['InstanceId'], instance['State']['Name']
+
+    def instance_status(self, instance_id):
+        filters = [{ 'Name': 'instance-id', 'Values': [instance_id] }]
+        instances = self._ec2_describe_instances(Filters=filters)['Reservations']
+        if len(instances) != 1:
+            raise Exception('Expected one instance for %s and got %s' % (instance_id, len(instances)))
+        return instances[0]['Instances'][0]['State']['Name']
 
     def _disable_terminate_protection(self, instance_id):
-        self._ec2_modify_instance_attribute(InstanceId=instance_id, DisableApiTermination={"Value": False})
+        self._ec2_modify_instance_attribute(InstanceId=instance_id, DisableApiTermination={'Value': False})
 
     def _instance_id_from_private_ip(self, private_ip):
         instance_ids = []
         filters = [
-            {"Name": "instance-state-name", "Values": ["running"]},
-            {"Name": "private-ip-address", "Values": [private_ip]}
+            {'Name': 'instance-state-name', 'Values': ['running']},
+            {'Name': 'private-ip-address', 'Values': [private_ip]}
         ]
 
         instances = self._ec2_describe_instances(Filters=filters)
