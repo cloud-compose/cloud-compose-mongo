@@ -17,6 +17,7 @@ from pprint import pprint
 from workflow import UpgradeWorkflow, Server
 from cloudcompose.cluster.cloudinit import CloudInit
 from cloudcompose.cluster.aws.cloudcontroller import CloudController
+from cloudcompose.exceptions import CloudComposeException
 
 class Controller(object):
     def __init__(self, cloud_config, use_snapshots=None, upgrade_image=None, user=None, password=None):
@@ -44,7 +45,8 @@ class Controller(object):
         cloud_controller.up(ci, self.use_snapshots, self.upgrade_image)
 
     def cluster_upgrade(self, single_step):
-        workflow = UpgradeWorkflow(self, self.config_data['name'], self.servers())
+        servers = self.servers()
+        workflow = UpgradeWorkflow(self, self.config_data['name'], servers)
         if single_step:
             workflow.step()
         else:
@@ -62,34 +64,71 @@ class Controller(object):
         return mongodb_health and configdb_health, msg_list
 
     def _repl_set_health(self, port, node_type):
-        unhealthy_nodes = self._repl_set_unhealthy_nodes(self._repl_set_status(port))
+        unhealthy_nodes, healthy_nodes = self._repl_set_unhealthy_nodes(self._repl_set_status(port))
         if len(unhealthy_nodes) == 0:
-            msg = '%s is HEALTHY' % node_type
-            return True, msg
+            if len(healthy_nodes) == 3:
+                msg = '%s is HEALTHY' % node_type
+                return True, msg
+            else:
+                msg = '%s is SICK because none of the nodes are healthy' % (node_type)
+                return False, msg
         else:
             msg = '%s is SICK because of the following nodes: %s' % (node_type, ' '.join(unhealthy_nodes))
             return False, msg
 
     def _repl_set_unhealthy_nodes(self, repl_status):
         unhealthy_nodes = []
+        healthy_nodes = []
         for member in repl_status.get('members', []):
             # see https://docs.mongodb.com/manual/reference/replica-states/ for details on state numbers
-            if member.get('state', 6) not in [1, 2, 7, 10]:
-                node_name = member['name'].split(':')[0]
+            node_name = member['name'].split(':')[0]
+            if member.get('state', 6) in [1, 2, 7, 10]:
+                healthy_nodes.append(node_name)
+            else:
                 unhealthy_nodes.append(node_name)
 
-        return unhealthy_nodes
+        return unhealthy_nodes, healthy_nodes
 
     def server_ips(self):
         return [node['ip'] for node in self.aws.get('nodes', [])]
 
     def servers(self):
         servers = []
-        for server_ip in self.server_ips():
-            instance_id = self._instance_id_from_private_ip(server_ip)
-            servers.append(Server(private_ip=server_ip, instance_id=instance_id))
+        primary_instance_name = self._primary_instance_name()
+        primary_server = None
 
+        for server_ip in self.server_ips():
+            instance_id, instance_name = self._instance_from_private_ip(server_ip)
+            server = Server(private_ip=server_ip, instance_id=instance_id)
+            if primary_instance_name == instance_name:
+                primary_server = server
+            else:
+                servers.append(server)
+
+        # upgrade the primary last
+        if primary_server:
+            servers.append(primary_server)
         return servers
+
+    def _primary_instance_name(self):
+        repl_status = self._repl_set_status(27018)
+        primary_node_name = None
+        primary_instance_name = None
+        for member in repl_status.get('members', []):
+            node_name = member['name'].split(':')[0]
+            node_num = node_name[4:]
+            if member.get('state', 6) == 1:
+                primary_node_name = node_name
+                primary_instance_name = '%s-%s' % (self.config_data['name'], node_num)
+
+        repl_status = self._repl_set_status(27019)
+        for member in repl_status.get('members', []):
+            node_name = member['name'].split(':')[0]
+            if member.get('state', 6) == 1:
+                if node_name != primary_node_name:
+                    raise CloudComposeException('ERROR: configdb and mongodb must be PRIMARY on the same EC2 instance before the upgrade can proceed. Use rs.stepDown() until the same EC2 instance is PRIMARY for both configdb and mongodb')
+
+        return primary_instance_name
 
     def _repl_set_status(self, port):
         for server_ip in self.server_ips():
@@ -100,6 +139,7 @@ class Controller(object):
                 continue
             except ServerSelectionTimeoutError:
                 continue
+        return {}
 
     def instance_terminate(self, instance_id):
         self._disable_terminate_protection(instance_id)
@@ -126,8 +166,9 @@ class Controller(object):
     def _disable_terminate_protection(self, instance_id):
         self._ec2_modify_instance_attribute(InstanceId=instance_id, DisableApiTermination={'Value': False})
 
-    def _instance_id_from_private_ip(self, private_ip):
-        instance_ids = []
+    def _instance_from_private_ip(self, private_ip):
+        instance_id = None
+        instance_name = None
         filters = [
             {'Name': 'instance-state-name', 'Values': ['running']},
             {'Name': 'private-ip-address', 'Values': [private_ip]}
@@ -137,12 +178,16 @@ class Controller(object):
         for reservation in instances.get('Reservations', []):
             for instance in reservation.get('Instances', []):
                 if 'InstanceId' in instance:
-                    instance_ids.append(instance['InstanceId'])
+                    instance_id = instance['InstanceId']
+                    instance_name = self._get_tag('Name', instance['Tags'])
+                    break
 
-        if len(instance_ids) == 1:
-            return instance_ids[0]
-        else:
-            return None
+        return instance_id, instance_name
+
+    def _get_tag(self, key, tags):
+        for tag in tags:
+            if tag["Key"] == key:
+                return tag["Value"]
 
     def _is_retryable_exception(exception):
         return not isinstance(exception, botocore.exceptions.ClientError)
