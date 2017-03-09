@@ -18,10 +18,15 @@ from workflow import UpgradeWorkflow, Server
 from cloudcompose.cluster.cloudinit import CloudInit
 from cloudcompose.cluster.aws.cloudcontroller import CloudController
 from cloudcompose.exceptions import CloudComposeException
+from base64 import b64decode
 
 class Controller(object):
     def __init__(self, cloud_config, use_snapshots=None, upgrade_image=None, user=None, password=None):
         logging.basicConfig(level=logging.ERROR)
+        self.config_data = cloud_config.config_data('cluster')
+        self.kms = self._get_kms_client()
+        if password is None:
+            password = self._lookup_password()
         if user:
             self.user = quote_plus(user)
         if password:
@@ -30,9 +35,20 @@ class Controller(object):
         self.cloud_config = cloud_config
         self.use_snapshots = use_snapshots
         self.upgrade_image = upgrade_image
-        self.config_data = cloud_config.config_data('cluster')
         self.aws = self.config_data['aws']
         self.ec2 = self._get_ec2_client()
+
+    def _lookup_password(self):
+        encrypted_password = self.config_data.get('secrets', {}).get('MONGODB_ADMIN_PASSWORD')
+        if encrypted_password:
+            return self._kms_decrypt(CiphertextBlob=b64decode(encrypted_password)).get('Plaintext')
+
+        return None
+
+    def _get_kms_client(self):
+        return boto3.client('kms', aws_access_key_id=require_env_var('AWS_ACCESS_KEY_ID'),
+                            aws_secret_access_key=require_env_var('AWS_SECRET_ACCESS_KEY'),
+                            region_name=environ.get('AWS_REGION', 'us-east-1'))
 
     def _get_ec2_client(self):
         return boto3.client('ec2', aws_access_key_id=require_env_var('AWS_ACCESS_KEY_ID'),
@@ -265,3 +281,7 @@ class Controller(object):
     @retry(retry_on_exception=_is_retryable_exception, stop_max_delay=10000, wait_exponential_multiplier=500, wait_exponential_max=2000)
     def _ec2_describe_instances(self, **kwargs):
         return self.ec2.describe_instances(**kwargs)
+
+    #TODO @retry(retry_on_exception=_is_retryable_exception, stop_max_delay=10000, wait_exponential_multiplier=500, wait_exponential_max=2000)
+    def _kms_decrypt(self, **kwargs):
+        return self.kms.decrypt(**kwargs)
