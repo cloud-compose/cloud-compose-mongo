@@ -55,9 +55,9 @@ class Controller(object):
                             aws_secret_access_key=require_env_var('AWS_SECRET_ACCESS_KEY'),
                             region_name=environ.get('AWS_REGION', 'us-east-1'))
 
-    def cluster_up(self):
+    def cluster_up(self, silent=False):
         ci = CloudInit()
-        cloud_controller = CloudController(self.cloud_config)
+        cloud_controller = CloudController(self.cloud_config, silent=silent)
         cloud_controller.up(ci, self.use_snapshots, self.upgrade_image)
 
     def cluster_down(self, force):
@@ -65,14 +65,12 @@ class Controller(object):
         cloud_controller.down(force)
 
     def cluster_upgrade(self, single_step):
-        servers = self.servers()
+        servers, primary_node_name = self.servers()
         workflow = UpgradeWorkflow(self, self.config_data['name'], servers)
         if single_step:
             workflow.step()
         else:
             while workflow.step():
-                sys.stdout.write('.')
-                sys.stdout.flush()
                 sleep(10)
 
     def cluster_health(self):
@@ -114,12 +112,12 @@ class Controller(object):
 
     def servers(self):
         servers = []
-        primary_instance_name = self._primary_instance_name()
+        primary_instance_name, primary_node_name = self.primary_instance_name()
         primary_server = None
 
         for server_ip in self.server_ips():
             instance_id, instance_name = self._instance_from_private_ip(server_ip)
-            server = Server(private_ip=server_ip, instance_id=instance_id)
+            server = Server(private_ip=server_ip, instance_id=instance_id, instance_name=instance_name)
             if primary_instance_name == instance_name:
                 primary_server = server
             else:
@@ -128,9 +126,9 @@ class Controller(object):
         # upgrade the primary last
         if primary_server:
             servers.append(primary_server)
-        return servers
+        return servers, primary_node_name
 
-    def _primary_instance_name(self):
+    def primary_instance_name(self):
         repl_status = self._repl_set_status(27018)
         primary_node_name = None
         primary_instance_name = None
@@ -141,10 +139,9 @@ class Controller(object):
                 primary_node_name = node_name
                 primary_instance_name = '%s-%s' % (self.config_data['name'], node_num)
 
-        self._align_primaries(primary_node_name)
-        return primary_instance_name
+        return primary_instance_name, primary_node_name
 
-    def _align_primaries(self, primary_node_name):
+    def align_primaries(self):
         msg_prefix = 'ERROR: unable to make the same EC2 instance PRIMARY for both mongodb and configdb because %s'
         mongodb_health, _ = self._repl_set_health(27018, 'mongodb')
         if not mongodb_health:
@@ -154,6 +151,7 @@ class Controller(object):
         if not configdb_health:
             raise CloudComposeException(msg_prefix % 'configdb is SICK')
 
+        _, primary_node_name = self.primary_instance_name()
         members = self._repl_set_status(27019).get('members', [])
         for member in members:
             node_name = member['name'].split(':')[0]
@@ -286,6 +284,6 @@ class Controller(object):
     def _ec2_describe_instances(self, **kwargs):
         return self.ec2.describe_instances(**kwargs)
 
-    #TODO @retry(retry_on_exception=_is_retryable_exception, stop_max_delay=10000, wait_exponential_multiplier=500, wait_exponential_max=2000)
+    @retry(retry_on_exception=_is_retryable_exception, stop_max_delay=10000, wait_exponential_multiplier=500, wait_exponential_max=2000)
     def _kms_decrypt(self, **kwargs):
         return self.kms.decrypt(**kwargs)

@@ -1,6 +1,7 @@
 from os.path import isdir, dirname, isfile
 import os
 import json
+import time
 
 class Server(object):
     INITIAL = 'initial'
@@ -10,11 +11,15 @@ class Server(object):
     TERMINATED = 'terminated'
     SHUTTING_DOWN = 'shutting-down'
 
-    def __init__(self, private_ip, instance_id, state=INITIAL, completed=False):
+    def __init__(self, private_ip, instance_id, instance_name, state=INITIAL, completed=False):
         self.private_ip = private_ip
         self.instance_id = instance_id
+        self.instance_name = instance_name
         self.state = state
         self.completed = completed
+
+    def __str__(self):
+        return '%s (%s): %s' % (self.instance_name, self.instance_id, self.state)
 
 class UpgradeWorkflow(object):
     def __init__(self, controller, cluster_name, servers):
@@ -36,6 +41,10 @@ class UpgradeWorkflow(object):
                 print '\n'.join(msg_list)
                 return False
 
+        if server.state == Server.INITIAL and self.curr_index == 0:
+            # if we are upgrading the first server, then align the primary databases
+            self.controller.align_primaries()
+
         self._next_step()
         if self.curr_index >= len(self.workflow):
             self._delete_workflow()
@@ -45,6 +54,7 @@ class UpgradeWorkflow(object):
 
     def _next_step(self):
         server =  self.workflow[self.curr_index]
+        prev_state = server.state
         if server.state == Server.INITIAL:
             self.controller.instance_terminate(server.instance_id)
             server.state = Server.SHUTTING_DOWN
@@ -52,7 +62,7 @@ class UpgradeWorkflow(object):
         elif server.state == Server.SHUTTING_DOWN:
             status = self.controller.instance_status(server.instance_id)
             if status == Server.TERMINATED:
-                self.controller.cluster_up()
+                self.controller.cluster_up(silent=True)
                 server.state = Server.PENDING
                 self._save_workflow()
         elif server.state in [server.CHECKING, Server.PENDING]:
@@ -70,17 +80,29 @@ class UpgradeWorkflow(object):
                 server.instance_id = instance_id
                 self._save_workflow()
 
+        if prev_state != server.state:
+            print "%s" % server
+
     def _load_workflow(self, servers):
         workflow = []
         if isfile(self.workflow_file):
-            with open(self.workflow_file) as f:
-                data = json.load(f)
-            for server in data:
-                server = Server(server['private_ip'], server['instance_id'], server['state'], server['completed'])
-                if server.completed:
-                    self.curr_index += 1
-                workflow.append(server)
-        else:
+            mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(os.path.getmtime(self.workflow_file)))
+	    print("Detected a partially completed upgrade on %s." % mtime)
+	    command = raw_input("Do you want continue this upgrade [yes/no]?: ")
+	    if command.lower() == 'yes':
+		with open(self.workflow_file) as f:
+		    data = json.load(f)
+		for server in data:
+		    server = Server(private_ip=server['private_ip'], instance_id=server['instance_id'], instance_name=server['instance_name'],
+				    state=server['state'], completed=server['completed'])
+		    if server.completed:
+			self.curr_index += 1
+		    workflow.append(server)
+
+                print "%s" % workflow[self.curr_index]
+            else:
+                os.remove(self.workflow_file)
+        if len(workflow) == 0:
             workflow.extend(servers)
 
         return workflow
@@ -96,8 +118,8 @@ class UpgradeWorkflow(object):
     def toJSON(self):
         workflow_list = []
         for server in self.workflow:
-            workflow_list.append({'private_ip': server.private_ip, 'instance_id': server.instance_id,
-                                  'state': server.state, 'completed': server.completed})
+            workflow_list.append({'private_ip': server.private_ip, 'instance_name': server.instance_name,
+                                  'instance_id': server.instance_id, 'state': server.state, 'completed': server.completed})
 
         return workflow_list
 
