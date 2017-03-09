@@ -22,6 +22,19 @@ def up(use_snapshots, upgrade_image):
         print ex.message
 
 @cli.command()
+@click.option('--force/--no-force', default=False, help="Force the cluster to go down even if terminate protection is enabled")
+def down(force):
+    """
+    destroys an existing cluster
+    """
+    try:
+        cloud_config = CloudConfig()
+        controller = Controller(cloud_config)
+        controller.cluster_down(force)
+    except CloudComposeException as ex:
+        print ex.message
+
+@cli.command()
 @click.option('--user', default='admin', help="Mongo user")
 @click.option('--password', help="Mongo password")
 @click.option('--use-snapshots/--no-use-snapshots', default=True, help="Use snapshots to initialize volumes with existing data")

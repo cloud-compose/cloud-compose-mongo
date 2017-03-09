@@ -60,6 +60,10 @@ class Controller(object):
         cloud_controller = CloudController(self.cloud_config)
         cloud_controller.up(ci, self.use_snapshots, self.upgrade_image)
 
+    def cluster_down(self, force):
+        cloud_controller = CloudController(self.cloud_config)
+        cloud_controller.down(force)
+
     def cluster_upgrade(self, single_step):
         servers = self.servers()
         workflow = UpgradeWorkflow(self, self.config_data['name'], servers)
