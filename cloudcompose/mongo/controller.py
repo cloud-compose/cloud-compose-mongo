@@ -82,9 +82,9 @@ class Controller(object):
         return mongodb_health and configdb_health, msg_list
 
     def _repl_set_health(self, port, node_type):
-        unhealthy_nodes, healthy_nodes = self._repl_set_unhealthy_nodes(self._repl_set_status(port))
+        unhealthy_nodes, secondary_nodes, primary_node = self._repl_set_stats(self._repl_set_status(port))
         if len(unhealthy_nodes) == 0:
-            if len(healthy_nodes) == 3:
+            if len(secondary_nodes) >= 2 and primary_node:
                 msg = '%s is HEALTHY' % node_type
                 return True, msg
             else:
@@ -94,18 +94,22 @@ class Controller(object):
             msg = '%s is SICK because of the following nodes: %s' % (node_type, ' '.join(unhealthy_nodes))
             return False, msg
 
-    def _repl_set_unhealthy_nodes(self, repl_status):
+    def _repl_set_stats(self, repl_status):
         unhealthy_nodes = []
-        healthy_nodes = []
+        secondary_nodes = []
+        primary_node = None
         for member in repl_status.get('members', []):
             # see https://docs.mongodb.com/manual/reference/replica-states/ for details on state numbers
             node_name = member['name'].split(':')[0]
-            if member.get('state', 6) in [1, 2, 7, 10]:
-                healthy_nodes.append(node_name)
-            else:
+            member_state = member.get('state', 6)
+            if member_state == 1:
+                primary_node = node_name
+            elif member_state == 2:
+                secondary_nodes.append(node_name)
+            elif member_state not in [1, 2, 7, 10]:
                 unhealthy_nodes.append(node_name)
 
-        return unhealthy_nodes, healthy_nodes
+        return unhealthy_nodes, secondary_nodes, primary_node
 
     def server_ips(self):
         return [node['ip'] for node in self.aws.get('nodes', [])]
