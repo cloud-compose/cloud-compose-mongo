@@ -11,7 +11,7 @@ import time, datetime
 from retrying import retry
 from pprint import pprint
 from pymongo import MongoClient
-from pymongo.errors import ServerSelectionTimeoutError, OperationFailure
+from pymongo.errors import ServerSelectionTimeoutError, OperationFailure, AutoReconnect
 from urllib import quote_plus
 from pprint import pprint
 from workflow import UpgradeWorkflow, Server
@@ -121,14 +121,76 @@ class Controller(object):
                 primary_node_name = node_name
                 primary_instance_name = '%s-%s' % (self.config_data['name'], node_num)
 
-        repl_status = self._repl_set_status(27019)
-        for member in repl_status.get('members', []):
+        self._align_primaries(primary_node_name)
+        return primary_instance_name
+
+    def _align_primaries(self, primary_node_name):
+        msg_prefix = 'ERROR: unable to make the same EC2 instance PRIMARY for both mongodb and configdb because %s'
+        mongodb_health, _ = self._repl_set_health(27018, 'mongodb')
+        if not mongodb_health:
+            raise CloudComposeException(msg_prefix % 'mongodb is SICK')
+
+        configdb_health, _ = self._repl_set_health(27019, 'configdb')
+        if not configdb_health:
+            raise CloudComposeException(msg_prefix % 'configdb is SICK')
+
+        members = self._repl_set_status(27019).get('members', [])
+        for member in members:
             node_name = member['name'].split(':')[0]
             if member.get('state', 6) == 1:
                 if node_name != primary_node_name:
-                    raise CloudComposeException('ERROR: configdb and mongodb must be PRIMARY on the same EC2 instance before the upgrade can proceed. Use rs.stepDown() until the same EC2 instance is PRIMARY for both configdb and mongodb')
+                    self._stepdown_configdb(members, node_name, primary_node_name)
 
-        return primary_instance_name
+    def _stepdown_configdb(self, members, old_primary, new_primary):
+        self._freeze_other_secondaries(members, old_primary, new_primary)
+        self._elect_new_primary(members, old_primary, new_primary)
+
+    def _freeze_other_secondaries(self, members, old_primary, new_primary):
+        for member in members:
+            node_name = member['name'].split(':')[0]
+            node_num = node_name[4:]
+            if member.get('state', 6) == 2 and node_name not in [old_primary, new_primary]:
+                self._repl_set_freeze(node_num, 27019)
+
+    def _elect_new_primary(self, members, old_primary, new_primary):
+        for member in members:
+            node_name = member['name'].split(':')[0]
+            node_num = node_name[4:]
+            # if this is the current PRIMARY then step down
+            if member.get('state', 6) == 1 and node_name not in [new_primary]:
+                self._repl_step_down(node_num, 27019)
+
+        # wait for new primary to be elected
+        count = 0
+        sleep_seconds = 10
+        max_sleep_seconds = 120
+        while max_sleep_seconds > (sleep_seconds * count):
+            configdb_health, _ = self._repl_set_health(27019, 'configdb')
+            if configdb_health:
+                break
+            else:
+                time.sleep(sleep_seconds)
+                count += 1
+
+    def _repl_set_freeze(self, node_num, port):
+        server_ip = self._find_server_by_node_num(node_num)
+        client = MongoClient('mongodb://%s:%s@%s:%s' % (self.user, self.password, server_ip, port), serverselectiontimeoutms=3000)
+        client.admin.command('replSetFreeze', 60)
+
+    def _repl_step_down(self, node_num, port):
+        server_ip = self._find_server_by_node_num(node_num)
+        try:
+            client = MongoClient('mongodb://%s:%s@%s:%s' % (self.user, self.password, server_ip, port), serverselectiontimeoutms=3000)
+            client.admin.command('replSetStepDown', 60)
+        except AutoReconnect:
+            pass
+
+    def _find_server_by_node_num(self, node_num):
+        for node in self.aws.get('nodes', []):
+            if int(node['id']) == int(node_num):
+                return node['ip']
+
+        return None
 
     def _repl_set_status(self, port):
         for server_ip in self.server_ips():
