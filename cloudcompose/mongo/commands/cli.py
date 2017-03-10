@@ -10,13 +10,16 @@ def cli():
 @cli.command()
 @click.option('--use-snapshots/--no-use-snapshots', default=True, help="Use snapshots to initialize volumes with existing data")
 @click.option('--upgrade-image/--no-upgrade-image', default=False, help="Upgrade the image to the newest version instead of keeping the cluster consistent")
-def up(use_snapshots, upgrade_image):
+@click.option('--snapshot-cluster', help="Cluster name to use for snapshot retrieval. It defaults to the current cluster name.")
+@click.option('--snapshot-time', help="Use a snapshot on or before this time. It defaults to the current time")
+def up(use_snapshots, upgrade_image, snapshot_cluster, snapshot_time):
     """
     upgrades an exist cluster
     """
     try:
         cloud_config = CloudConfig()
-        controller = Controller(cloud_config, use_snapshots=use_snapshots, upgrade_image=upgrade_image)
+        controller = Controller(cloud_config, use_snapshots=use_snapshots, upgrade_image=upgrade_image,
+                                snapshot_cluster=snapshot_cluster, snapshot_time=snapshot_time)
         controller.cluster_up()
     except CloudComposeException as ex:
         print ex.message

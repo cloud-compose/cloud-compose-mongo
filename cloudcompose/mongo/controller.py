@@ -21,7 +21,7 @@ from cloudcompose.exceptions import CloudComposeException
 from base64 import b64decode
 
 class Controller(object):
-    def __init__(self, cloud_config, use_snapshots=None, upgrade_image=None, user=None, password=None):
+    def __init__(self, cloud_config, use_snapshots=None, upgrade_image=None, user=None, password=None, snapshot_cluster=None, snapshot_time=None):
         logging.basicConfig(level=logging.ERROR)
         self.config_data = cloud_config.config_data('cluster')
         self.kms = self._get_kms_client()
@@ -35,6 +35,8 @@ class Controller(object):
         self.cloud_config = cloud_config
         self.use_snapshots = use_snapshots
         self.upgrade_image = upgrade_image
+        self.snapshot_cluster = snapshot_cluster
+        self.snapshot_time = snapshot_time
         self.aws = self.config_data['aws']
         self.ec2 = self._get_ec2_client()
 
@@ -58,7 +60,7 @@ class Controller(object):
     def cluster_up(self, silent=False):
         ci = CloudInit()
         cloud_controller = CloudController(self.cloud_config, silent=silent)
-        cloud_controller.up(ci, self.use_snapshots, self.upgrade_image)
+        cloud_controller.up(ci, self.use_snapshots, self.upgrade_image, self.snapshot_cluster, self.snapshot_time)
 
     def cluster_down(self, force):
         cloud_controller = CloudController(self.cloud_config)
