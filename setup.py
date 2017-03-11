@@ -4,7 +4,7 @@ import warnings
 
 setup(
     name='cloud-compose-mongo',
-    version='0.1.0',
+    version='0.1.1',
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
@@ -33,7 +33,7 @@ setup(
     author="Patrick Cullen and the WaPo platform tools team",
     author_email="opensource@washingtonpost.com",
     url="https://github.com/cloud-compose/cloud-compose-mongo",
-    download_url = "https://github.com/cloud-compose/cloud-compose-mongo/tarball/v0.1.0",
+    download_url = "https://github.com/cloud-compose/cloud-compose-mongo/tarball/v0.1.1",
     keywords = ['mongo', 'cloud', 'compose', 'aws'],
     classifiers = []
 )
