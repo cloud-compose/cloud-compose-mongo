@@ -1,3 +1,4 @@
+from __future__ import print_function
 import click
 from cloudcompose.mongo.controller import Controller
 from cloudcompose.config import CloudConfig
@@ -22,7 +23,7 @@ def up(use_snapshots, upgrade_image, snapshot_cluster, snapshot_time):
                                 snapshot_cluster=snapshot_cluster, snapshot_time=snapshot_time)
         controller.cluster_up()
     except CloudComposeException as ex:
-        print ex.message
+        print(ex.message)
 
 @cli.command()
 @click.option('--force/--no-force', default=False, help="Force the cluster to go down even if terminate protection is enabled")
@@ -35,7 +36,7 @@ def down(force):
         controller = Controller(cloud_config)
         controller.cluster_down(force)
     except CloudComposeException as ex:
-        print ex.message
+        print(ex.message)
 
 @cli.command()
 @click.option('--user', default='admin', help="Mongo user")
@@ -52,7 +53,7 @@ def upgrade(user, password, use_snapshots, upgrade_image, single_step):
         controller = Controller(cloud_config, use_snapshots=use_snapshots, upgrade_image=upgrade_image, user=user, password=password)
         controller.cluster_upgrade(single_step)
     except CloudComposeException as ex:
-        print ex.message
+        print(ex.message)
 
 @cli.command()
 @click.option('--user', default='admin', help="Mongo user")
@@ -65,6 +66,6 @@ def health(user, password):
         cloud_config = CloudConfig()
         controller = Controller(cloud_config, user=user, password=password)
         _, msg_list = controller.cluster_health()
-        print '%s' % '\n'.join(msg_list)
+        print('%s' % '\n'.join(msg_list))
     except CloudComposeException as ex:
-        print ex.message
+        print(ex.message)

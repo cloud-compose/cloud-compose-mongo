@@ -1,3 +1,7 @@
+from __future__ import absolute_import
+from future import standard_library
+standard_library.install_aliases()
+from builtins import object
 from os import environ
 import sys
 from os.path import abspath, dirname, join, isfile
@@ -12,9 +16,9 @@ from retrying import retry
 from pprint import pprint
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError, OperationFailure, AutoReconnect
-from urllib import quote_plus
+from urllib.parse import quote_plus
 from pprint import pprint
-from workflow import UpgradeWorkflow, Server
+from .workflow import UpgradeWorkflow, Server
 from cloudcompose.cluster.cloudinit import CloudInit
 from cloudcompose.cluster.aws.cloudcontroller import CloudController
 from cloudcompose.exceptions import CloudComposeException

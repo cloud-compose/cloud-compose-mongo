@@ -1,3 +1,6 @@
+from __future__ import print_function
+from builtins import input
+from builtins import object
 from os.path import isdir, dirname, isfile
 import os
 import json
@@ -38,7 +41,7 @@ class UpgradeWorkflow(object):
         if server.state == Server.INITIAL or server.state == Server.RUNNING:
             cluster_healthy, msg_list = self.controller.cluster_health()
             if not cluster_healthy:
-                print '\n'.join(msg_list)
+                print('\n'.join(msg_list))
                 return False
 
         if server.state == Server.INITIAL and self.curr_index == 0:
@@ -81,14 +84,14 @@ class UpgradeWorkflow(object):
                 self._save_workflow()
 
         if prev_state != server.state:
-            print "%s" % server
+            print("%s" % server)
 
     def _load_workflow(self, servers):
         workflow = []
         if isfile(self.workflow_file):
             mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(os.path.getmtime(self.workflow_file)))
 	    print("Detected a partially completed upgrade on %s." % mtime)
-	    command = raw_input("Do you want continue this upgrade [yes/no]?: ")
+	    command = input("Do you want continue this upgrade [yes/no]?: ")
 	    if command.lower() == 'yes':
 		with open(self.workflow_file) as f:
 		    data = json.load(f)
@@ -99,7 +102,7 @@ class UpgradeWorkflow(object):
 			self.curr_index += 1
 		    workflow.append(server)
 
-                print "%s" % workflow[self.curr_index]
+                print("%s" % workflow[self.curr_index])
             else:
                 os.remove(self.workflow_file)
         if len(workflow) == 0:
