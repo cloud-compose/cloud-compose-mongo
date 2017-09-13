@@ -99,7 +99,7 @@ class UpgradeWorkflow(object):
                     server = Server(private_ip=server['private_ip'], instance_id=server['instance_id'], instance_name=server['instance_name'],
                             state=server['state'], completed=server['completed'])
                     if server.completed:
-                    self.curr_index += 1
+                        self.curr_index += 1
                     workflow.append(server)
 
                 print("%s" % workflow[self.curr_index])
