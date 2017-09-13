@@ -4,7 +4,7 @@ import warnings
 
 setup(
     name='cloud-compose-mongo',
-    version='0.1.3',
+    version='0.1.4',
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
