@@ -26,7 +26,7 @@ class Server(object):
 
 class UpgradeWorkflow(object):
     def __init__(self, controller, cluster_name, servers):
-	self.workflow_file = '/tmp/cloud-compose/mongo.upgrade.workflow.%s.json' % cluster_name
+        self.workflow_file = '/tmp/cloud-compose/mongo.upgrade.workflow.%s.json' % cluster_name
         self.controller = controller
         self.curr_index = 0
         workflow = []
@@ -90,17 +90,17 @@ class UpgradeWorkflow(object):
         workflow = []
         if isfile(self.workflow_file):
             mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(os.path.getmtime(self.workflow_file)))
-	    print("Detected a partially completed upgrade on %s." % mtime)
-	    command = input("Do you want continue this upgrade [yes/no]?: ")
-	    if command.lower() == 'yes':
-		with open(self.workflow_file) as f:
-		    data = json.load(f)
-		for server in data:
-		    server = Server(private_ip=server['private_ip'], instance_id=server['instance_id'], instance_name=server['instance_name'],
-				    state=server['state'], completed=server['completed'])
-		    if server.completed:
-			self.curr_index += 1
-		    workflow.append(server)
+            print("Detected a partially completed upgrade on %s." % mtime)
+            command = input("Do you want continue this upgrade [yes/no]?: ")
+            if command.lower() == 'yes':
+                with open(self.workflow_file) as f:
+                    data = json.load(f)
+                for server in data:
+                    server = Server(private_ip=server['private_ip'], instance_id=server['instance_id'], instance_name=server['instance_name'],
+                            state=server['state'], completed=server['completed'])
+                    if server.completed:
+                    self.curr_index += 1
+                    workflow.append(server)
 
                 print("%s" % workflow[self.curr_index])
             else:
